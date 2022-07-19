@@ -49,7 +49,7 @@ class ProductRemoteMediator(
             val products = remoteDataSource.getProductsAsBuyer(
                 page = page,
                 size = state.config.pageSize,
-            ).map { it.mapToEntityModel() }
+            )
 
             val endOfPaginationReached = products.isEmpty()
             Timber.d("endOfPaginationReached=$endOfPaginationReached")
@@ -66,7 +66,9 @@ class ProductRemoteMediator(
                     RemoteKeys(productId = it.id, prevKey = prevKey, nextKey = nextKey)
                 }
                 localDataSource.insertRemoteKeys(keys)
-                localDataSource.cacheAllProducts(products)
+
+                val productEntities = products.map { it.mapToEntityModel() }
+                localDataSource.cacheAllProducts(productEntities)
             }
 
             MediatorResult.Success(endOfPaginationReached = endOfPaginationReached)
