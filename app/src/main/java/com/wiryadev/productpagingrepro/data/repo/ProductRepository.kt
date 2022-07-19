@@ -5,8 +5,8 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import com.wiryadev.productpagingrepro.data.local.ProductEntity
-import com.wiryadev.productpagingrepro.data.local.ProductLocalDataSource
-import com.wiryadev.productpagingrepro.data.remote.ProductRemoteDataSource
+import com.wiryadev.productpagingrepro.data.local.SecondhandDatabase
+import com.wiryadev.productpagingrepro.data.remote.ProductService
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 
@@ -17,19 +17,19 @@ interface ProductRepository {
 }
 
 class ProductRepositoryImpl @Inject constructor(
-    private val remoteDataSource: ProductRemoteDataSource,
-    private val localDataSource: ProductLocalDataSource,
+    private val apiService: ProductService,
+    private val database: SecondhandDatabase,
 ) : ProductRepository {
     @ExperimentalPagingApi
     override fun getProductsAsBuyer(): Flow<PagingData<ProductEntity>> {
         return Pager(
             config = PagingConfig(pageSize = NETWORK_PAGE_SIZE),
             remoteMediator = ProductRemoteMediator(
-                remoteDataSource = remoteDataSource,
-                localDataSource = localDataSource,
+                apiService = apiService,
+                database = database,
             ),
             pagingSourceFactory = {
-                localDataSource.getCachedProducts()
+                database.productCacheDao().getCachedProducts()
             }
         ).flow
     }

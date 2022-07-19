@@ -4,11 +4,11 @@ import androidx.paging.ExperimentalPagingApi
 import androidx.paging.LoadType
 import androidx.paging.PagingState
 import androidx.paging.RemoteMediator
+import androidx.room.withTransaction
 import com.wiryadev.productpagingrepro.data.local.ProductEntity
-import com.wiryadev.productpagingrepro.data.local.ProductLocalDataSource
 import com.wiryadev.productpagingrepro.data.local.RemoteKeys
 import com.wiryadev.productpagingrepro.data.local.SecondhandDatabase
-import com.wiryadev.productpagingrepro.data.remote.ProductRemoteDataSource
+import com.wiryadev.productpagingrepro.data.remote.ProductService
 import com.wiryadev.productpagingrepro.data.repo.ProductRepositoryImpl.Companion.STARTING_PAGE_INDEX
 import retrofit2.HttpException
 import timber.log.Timber
@@ -16,9 +16,13 @@ import java.io.IOException
 
 @ExperimentalPagingApi
 class ProductRemoteMediator(
-    private val remoteDataSource: ProductRemoteDataSource,
-    private val localDataSource: ProductLocalDataSource,
+    private val apiService: ProductService,
+    private val database: SecondhandDatabase,
 ) : RemoteMediator<Int, ProductEntity>() {
+
+    override suspend fun initialize(): InitializeAction {
+        return InitializeAction.LAUNCH_INITIAL_REFRESH
+    }
 
     override suspend fun load(
         loadType: LoadType,
@@ -46,29 +50,29 @@ class ProductRemoteMediator(
         return try {
             Timber.d("loadType=$loadType")
             Timber.d("page=$page, size=${state.config.pageSize}")
-            val products = remoteDataSource.getProductsAsBuyer(
+            val products = apiService.getProductsAsBuyer(
                 page = page,
                 size = state.config.pageSize,
-            )
+            ).data
 
             val endOfPaginationReached = products.isEmpty()
             Timber.d("endOfPaginationReached=$endOfPaginationReached")
 
-            localDataSource.cacheProductTransaction {
+            database.withTransaction {
                 // clear all tables in the database
                 if (loadType == LoadType.REFRESH) {
-                    localDataSource.clearRemoteKeys()
-                    localDataSource.clearCachedProducts()
+                    database.remoteKeysDao().clearRemoteKeys()
+                    database.productCacheDao().deleteAll()
                 }
                 val prevKey = if (page == STARTING_PAGE_INDEX) null else page - 1
                 val nextKey = if (endOfPaginationReached) null else page + 1
                 val keys = products.map {
                     RemoteKeys(productId = it.id, prevKey = prevKey, nextKey = nextKey)
                 }
-                localDataSource.insertRemoteKeys(keys)
+                database.remoteKeysDao().insertAll(keys)
 
                 val productEntities = products.map { it.mapToEntityModel() }
-                localDataSource.cacheAllProducts(productEntities)
+                database.productCacheDao().insertOrReplace(productEntities)
             }
 
             MediatorResult.Success(endOfPaginationReached = endOfPaginationReached)
@@ -87,7 +91,7 @@ class ProductRemoteMediator(
             ?.data
             ?.lastOrNull()
             ?.let { repo ->
-                localDataSource.getRemoteKeysId(repo.id)
+                database.remoteKeysDao().getRemoteKeysId(repo.id)
             }
     }
 
@@ -97,7 +101,7 @@ class ProductRemoteMediator(
             ?.data
             ?.firstOrNull()
             ?.let { repo ->
-                localDataSource.getRemoteKeysId(repo.id)
+                database.remoteKeysDao().getRemoteKeysId(repo.id)
             }
     }
 
@@ -106,7 +110,7 @@ class ProductRemoteMediator(
     ): RemoteKeys? {
         return state.anchorPosition?.let { position ->
             state.closestItemToPosition(position)?.id?.let { repoId ->
-                localDataSource.getRemoteKeysId(repoId)
+                database.remoteKeysDao().getRemoteKeysId(repoId)
             }
         }
     }
